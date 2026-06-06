@@ -1,0 +1,6 @@
+venv/
+.env
+phase3_memory_alerts/.env
+__pycache__/
+*.py[cod]
+*$py.class
