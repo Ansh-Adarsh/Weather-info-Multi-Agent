@@ -16,7 +16,7 @@ INTENT_TO_AGENTS = {
     "weather": ["weather_agent"],
     "forecast": ["forecast_agent"],
     "aqi": ["aqi_agent"],
-    "combined": ["weather_agent", "aqi_agent"],
+    "combined": ["weather_agent", "forecast_agent", "aqi_agent"],
     "chat": ["conversation_agent"],
     "memory": ["memory_agent"],
 }

@@ -6,91 +6,118 @@ from graph.state import AgentState
 from prompts.recommendation_prompt import RECOMMENDATION_PROMPT
 from schemas.recommendation_schema import RecommendationOutput
 
+
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Observation builder — produces human-readable context for the LLM
-# ---------------------------------------------------------------------------
-
 def _format_weather(data: dict) -> str:
-    """Format current weather data into a readable summary."""
     if not data or "error" in data:
         error = data.get("error", "unavailable") if data else "unavailable"
         return f"Current weather data is unavailable ({error})."
     return (
-        f"{data.get('temperature', '?')}°C (feels like {data.get('apparent_temperature', '?')}°C), "
+        f"{data.get('temperature', '?')} degrees C "
+        f"(feels like {data.get('apparent_temperature', '?')} degrees C), "
         f"humidity {data.get('humidity', '?')}%, "
         f"wind {data.get('wind_speed', '?')} km/h."
     )
 
 
 def _format_forecast(data: dict) -> str:
-    """Format forecast data into a readable multi-day summary."""
     if not data or "error" in data:
         error = data.get("error", "unavailable") if data else "unavailable"
         return f"Forecast data is unavailable ({error})."
+
     days = data.get("days", [])[:5]
     if not days:
         return "No forecast days available."
-    lines = []
-    for day in days:
-        lines.append(
+
+    return "\n".join(
+        (
             f"  {day.get('date', '?')}: "
-            f"{day.get('temp_min', '?')}–{day.get('temp_max', '?')}°C, "
+            f"{day.get('min_temp', '?')}-{day.get('max_temp', '?')} degrees C, "
             f"{day.get('rain_probability', '?')}% rain chance"
         )
-    return "\n".join(lines)
+        for day in days
+    )
 
 
 def _format_aqi(data: dict) -> str:
-    """Format AQI data into a readable summary."""
     if not data or "error" in data:
         error = data.get("error", "unavailable") if data else "unavailable"
         return f"Air quality data is unavailable ({error})."
     return (
-        f"AQI index: {data.get('aqi_index', '?')} ({data.get('aqi_label', 'Unknown')}), "
-        f"PM2.5: {data.get('pm2_5', '?')} µg/m³, "
-        f"PM10: {data.get('pm10', '?')} µg/m³."
+        f"AQI index: {data.get('aqi_index', '?')} "
+        f"({data.get('aqi_label', 'Unknown')}), "
+        f"PM2.5: {data.get('pm2_5', '?')} micrograms/m3, "
+        f"PM10: {data.get('pm10', '?')} micrograms/m3."
     )
 
 
 def _build_observations(state: AgentState) -> str:
-    """Build a clean, human-readable observation block for the LLM."""
+    """Include only the sources that the selected route was expected to fetch."""
     city = state.get("city", "Unknown")
+    intent = state.get("intent", "")
     sections = [
         f"User Query: {state['user_query']}",
         f"City: {city}",
-        f"\nCurrent Weather:\n  {_format_weather(state.get('weather_data'))}",
-        f"\nForecast (upcoming days):\n{_format_forecast(state.get('forecast_data'))}",
-        f"\nAir Quality:\n  {_format_aqi(state.get('aqi_data'))}",
     ]
+
+    if intent in {"weather", "combined"}:
+        sections.append(
+            f"\nCurrent Weather:\n  {_format_weather(state.get('weather_data', {}))}"
+        )
+    if intent in {"forecast", "combined"}:
+        sections.append(
+            f"\nForecast (upcoming days):\n"
+            f"{_format_forecast(state.get('forecast_data', {}))}"
+        )
+    if intent in {"aqi", "combined"}:
+        sections.append(
+            f"\nAir Quality:\n  {_format_aqi(state.get('aqi_data', {}))}"
+        )
+
+    sections.append(
+        "\nImportant: Sources not listed above were not requested. "
+        "Do not describe them as unavailable or failed."
+    )
     return "\n".join(sections)
 
 
-# ---------------------------------------------------------------------------
-# Deterministic fallback — used when the LLM is unavailable
-# ---------------------------------------------------------------------------
-
 def _fallback_output(state: AgentState) -> RecommendationOutput:
-    """Produce a basic recommendation without the LLM."""
     city = state.get("city", "Unknown")
+    intent = state.get("intent", "")
     weather = state.get("weather_data", {})
+    forecast = state.get("forecast_data", {})
     aqi = state.get("aqi_data", {})
     parts: list[str] = []
 
-    if weather and "error" not in weather:
-        parts.append(
-            f"{city} is currently {weather.get('temperature', '?')}°C "
-            f"and feels like {weather.get('apparent_temperature', '?')}°C."
-        )
-    elif weather:
-        parts.append(f"Unable to fetch current weather for {city}.")
+    if intent in {"weather", "combined"}:
+        if weather and "error" not in weather:
+            parts.append(
+                f"{city} is currently {weather.get('temperature', '?')} degrees C "
+                f"and feels like "
+                f"{weather.get('apparent_temperature', '?')} degrees C."
+            )
+        else:
+            parts.append(f"Unable to fetch current weather for {city}.")
 
-    if aqi and "error" not in aqi:
-        parts.append(f"Air quality is {aqi.get('aqi_label', 'unknown')}.")
-    elif aqi:
-        parts.append("Air quality data is currently unavailable.")
+    if intent in {"forecast", "combined"}:
+        if forecast and "error" not in forecast:
+            first_day = forecast.get("days", [{}])[0]
+            parts.append(
+                f"The next forecast period ranges from "
+                f"{first_day.get('min_temp', '?')} to "
+                f"{first_day.get('max_temp', '?')} degrees C, with a "
+                f"{first_day.get('rain_probability', '?')}% chance of rain."
+            )
+        else:
+            parts.append(f"Unable to fetch the forecast for {city}.")
+
+    if intent in {"aqi", "combined"}:
+        if aqi and "error" not in aqi:
+            parts.append(f"Air quality is {aqi.get('aqi_label', 'unknown')}.")
+        else:
+            parts.append("Air quality data is currently unavailable.")
 
     if not parts:
         parts.append(f"I could not fetch reliable weather intelligence for {city}.")
@@ -102,17 +129,9 @@ def _fallback_output(state: AgentState) -> RecommendationOutput:
     )
 
 
-# ---------------------------------------------------------------------------
-# Main recommendation node
-# ---------------------------------------------------------------------------
-
 def run_recommendation(state: AgentState) -> AgentState:
-    """LLM-powered recommendation agent using structured output."""
     observations = _build_observations(state)
-    prompt = (
-        f"{RECOMMENDATION_PROMPT}\n\n"
-        f"Weather Intelligence:\n{observations}"
-    )
+    prompt = f"{RECOMMENDATION_PROMPT}\n\nWeather Intelligence:\n{observations}"
 
     try:
         from agents.llm import llm

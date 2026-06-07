@@ -15,7 +15,7 @@ def route_after_router(state: AgentState) -> str | list[str]:
         return "memory_agent"
     agents = state.get("required_agents", [])
     if state.get("intent") == "combined":
-        return ["weather_agent", "aqi_agent"]
+        return agents or ["weather_agent", "forecast_agent", "aqi_agent"]
     if agents:
         return agents[0]
     return "conversation_agent"
