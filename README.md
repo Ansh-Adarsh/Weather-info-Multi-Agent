@@ -1,4 +1,8 @@
-# Phase 2 — Multi-Agent Weather System with Groq + LangGraph
+## There are two phase of this project 
+1. phase-2 basic agent
+2. Phase-3 streamlit based UI integrated agent
+
+# 1. Phase 2 — Multi-Agent Weather System with Groq + LangGraph
 
 ## Overview
 Intelligent multi-agent weather assistant powered by Groq LLM and LangGraph.
